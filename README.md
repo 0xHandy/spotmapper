@@ -1,1 +1,3 @@
-# spotmapper
+# SPOTmapper
+
+- stylovka
