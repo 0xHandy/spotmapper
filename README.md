@@ -1,3 +1,4 @@
 # SPOTmapper
 
 - stylovka
+- nothing there
