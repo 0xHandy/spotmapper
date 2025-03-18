@@ -17,6 +17,7 @@ import bosdyn.client
         lease_client = robot.ensure_client(bosdyn.client.lease.LeaseClient.name)
         with bosdyn.client.lease.Lease(lease_client, acquire=True, return_on_exit=True):
             # Control logic here
+            #---------------------------------------------------------------------------
             spot_utils.stand(robot)
             time.sleep(2)
             navigation.navigate_to(robot, 1.0, 0.0, 0.0) #example of navigation
