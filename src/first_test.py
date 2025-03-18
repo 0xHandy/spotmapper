@@ -7,7 +7,7 @@ import time
 
 def main():
     sdk = bosdyn.client.create_standard_sdk('SpotConsoleControl')
-    robot = sdk.create_robot('192.168.80.3') # Replace with Spot's IP address
+    robot = sdk.create_robot('192.168.80.3') # idk the real address
     bosdyn.client.util.authenticate(robot)
     robot.time_sync.wait_for_sync()
 
