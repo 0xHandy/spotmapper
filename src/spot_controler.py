@@ -3,7 +3,7 @@ import bosdyn.client
     import bosdyn.util
     import time
     import yaml
-    from src import spot_utils, navigation, data_processing #importing the local packages
+    from src import spot_utils
 
     def main():
         with open('config/spot_config.yaml', 'r') as file:
