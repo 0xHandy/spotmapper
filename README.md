@@ -2,3 +2,4 @@
 
 - stylovka
 - nothing there
+- pindík
