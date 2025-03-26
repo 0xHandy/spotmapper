@@ -34,6 +34,7 @@ def main():
                 print("Spot is sitting.")
 
             elif command == "walk":
+                # Code to make Spot walk
                 #code to walk the robot.
                 velocity_cmd = bosdyn.client.robot_command.RobotCommandBuilder.velocity_command(v_x=0.5, v_y=0.0, v_rot=0.0)
                 command_client.robot_command(velocity_cmd, end_time_secs=time.time()+2)
