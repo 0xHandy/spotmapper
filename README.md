@@ -14,6 +14,6 @@ SPOT Mapper je robotický pes vybavený kamerou a pokročilými algoritmy pro ma
 ## 🏗 **Použité technologie**  
 - **Jazyk:** Python  
 - **Frameworky:**   
-- **Senzory:** RGB kamera, IMU  
+- **Senzory:**   
 - **Vizualizace:**  
 
