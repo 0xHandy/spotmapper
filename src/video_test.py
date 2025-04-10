@@ -39,13 +39,13 @@ def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=40):
         
         img = cv2.resize(img, (640, 480))
         out.write(img)
-        cv2.imshow('Spot Camera', img)
+        #cv2.imshow('Spot Camera', img)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     
     out.release()
-    cv2.destroyAllWindows()
+    #cv2.destroyAllWindows()
     print("Video saved to", save_path)
 
 if __name__ == "__main__":

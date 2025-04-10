@@ -17,7 +17,7 @@ def stream_rtsp(rtsp_url):
     )
     return process
 
-def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=10, rtsp_url=None):
+def get_spot_video(robot_ip, save_path="spot_video.avi", duration=60, fps=40, rtsp_url=None):
     bosdyn.client.util.setup_logging()
     sdk = bosdyn.client.create_standard_sdk('SpotVideoClient')
     robot = sdk.create_robot(robot_ip)
@@ -58,10 +58,11 @@ def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=10, rt
         stitched_img = np.hstack((img_left, img_right))
         
         out.write(stitched_img)
-        cv2.imshow('Spot Stitched Camera', stitched_img)
+        #cv2.imshow('Spot Stitched Camera', stitched_img)
         
         if rtsp_url and rtsp_process:
             rtsp_process.stdin.write(stitched_img.tobytes())
+            rtsp_process.stdin.flush()
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
@@ -70,10 +71,10 @@ def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=10, rt
     if rtsp_process:
         rtsp_process.stdin.close()
         rtsp_process.wait()
-    cv2.destroyAllWindows()
+    #cv2.destroyAllWindows()
     print("Video saved to", save_path)
 
 if __name__ == "__main__":
     robot_ip = "192.168.80.3"  # Spot's Wi-Fi IP
-    rtsp_url = "rtsp://192.168.80.3:554/stream"  # RTSP stream address
+    rtsp_url = "rtsp://localhost:8554/mystream"  # RTSP stream address
     get_spot_video(robot_ip, rtsp_url=rtsp_url)

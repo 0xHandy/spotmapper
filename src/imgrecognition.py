@@ -33,7 +33,7 @@ def detect_people_in_image(img):
 
     return person_detected
 
-def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=40):
+def get_spot_video(robot_ip, save_path="spot_video.avi", duration=60, fps=45):
     bosdyn.client.util.setup_logging()
     sdk = bosdyn.client.create_standard_sdk('SpotVideoClient')
     robot = sdk.create_robot(robot_ip)
@@ -75,7 +75,7 @@ def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=40):
                 print("Člověk detekován nebyl.")
         
         out.write(img)
-        cv2.imshow('Spot Camera', img)
+        #cv2.imshow('Spot Camera', img)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
@@ -83,7 +83,7 @@ def get_spot_video(robot_ip, save_path="spot_video.avi", duration=10, fps=40):
         frame_count += 1
     
     out.release()
-    cv2.destroyAllWindows()
+    #cv2.destroyAllWindows()
     print("Video saved to", save_path)
 
 if __name__ == "__main__":
