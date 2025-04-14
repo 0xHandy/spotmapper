@@ -1,60 +1,127 @@
 import time
-import random
+import numpy as np
 
+from bosdyn.client.image import ImageClient, build_image_request
 import bosdyn.client
-from bosdyn.client.util import authenticate, create_standard_sdk, setup_logging
+import bosdyn.client.lease
+from bosdyn.client.util import authenticate, setup_logging
 from bosdyn.client.lease import LeaseKeepAlive, LeaseClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.graph_nav import GraphNavClient
+from contextlib import contextmanager
+from ctypes import *
+
+import OpenGL
+import pygame
+from OpenGL.GL import *
+from OpenGL.GL import GL_VERTEX_SHADER, shaders
+from OpenGL.GLU import *
+from PIL import Image
+from pygame.locals import *
+
+from bosdyn.api import image_pb2
+from bosdyn.client.frame_helpers import BODY_FRAME_NAME, get_a_tform_b, get_vision_tform_body
+from bosdyn.client.image import ImageClient, build_image_request
 
 
 ROBOT_IP = "192.168.80.3"
 
-def explore_room():
-    sdk = create_standard_sdk("RoomExplorer")
-    robot = sdk.create_robot(ROBOT_IP)
-    authenticate(robot)
-    robot.time_sync.wait_for_sync()
 
-    lease_client = robot.ensure_client(LeaseClient.default_service_name)
-    command_client = robot.ensure_client(RobotCommandClient.default_service_name)
-    graphnav_client = robot.ensure_client(GraphNavClient.default_service_name)
+def detect_front_obstacle():
+    # Získání depth obrázků z obou předních kamer
+    image_sources = ['frontleft_depth_in_hand_color', 'frontright_depth_in_hand_color']
+    image_responses = image_client.get_image_from_sources(image_sources)
 
-    with LeaseKeepAlive(lease_client, must_acquire=True):
+    if len(image_responses) != 2:
+        print("Nebyly načteny oba depth obrázky.")
+        return
+
+    # Vytvoření numpy polí z obou obrázků
+    images_np = []
+    for img in image_responses:
+        data = np.frombuffer(img.shot.image.data, dtype=np.uint16)
+        img_np = data.reshape((img.shot.image.rows, img.shot.image.cols))
+        images_np.append(img_np)
+
+    # Horizontální spojení obrázků
+    stitched_depth = np.hstack(images_np)
+
+    # Vyříznutí středového obdélníku
+    center_h, center_w = stitched_depth.shape[0] // 2, stitched_depth.shape[1] // 2
+    region = stitched_depth[center_h - 10:center_h + 10, center_w - 10:center_w + 10]
+
+    avg_distance_mm = np.mean(region)
+    avg_distance_m = avg_distance_mm / 1000.0
+
+    print(f"Středová vzdálenost k překážce: {avg_distance_m:.2f} m")
+    return avg_distance_m < 0.5  # Pokud je překážka blíže než 0.5 m, vrátí True
+
+def go_straight(step, step_length):
+    if detect_front_obstacle():
+        print("Překážka detekována, zastavuji.")
+        go_straight(step, -step_length/4)
+        go_90()
+    print(f"Krok {step + 1} dopředu")
+    # Pojedeme dopředu (v_x), žádný boční pohyb ani rotace
+    walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
+    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 4)
+    time.sleep(4)
+
+def go_90():
+    # Otočíme se o 90° na místě (v_rot = ±1.0 ~ 90°/s), pak popojedeme do strany
+    print("táčím se o 90°")
+    rotate_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=1.0)
+    command_client.robot_command(rotate_cmd, end_time_secs=time.time() + 1)
+    time.sleep(1.2)
+
+def go_sideways(side_step):
+    print("Posun do strany")
+    side_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=-0.2, v_y=side_step, v_rot=0.0)
+    command_client.robot_command(side_cmd, end_time_secs=time.time() + 2)
+    time.sleep(2)
+
+
+def full_room_search(grid_steps=15, step_length=1.0, side_step=0.5):
+    
+    with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True):
         robot.power_on(timeout_sec=20)
         print("Spot powered on.")
 
-        # Start recording GraphNav map
-        print("Starting GraphNav recording...")
-        graphnav_client.clear_graph()
-        graphnav_client.upload_locks()
-        graphnav_client.start_recording()
-
         try:
-            print("Starting autonomous room exploration...")
-            for i in range(6):  # Projde 6 kroků = cca 1–2 minuty průzkumu
-                # Vpřed 3 sekundy
-                walk_cmd = RobotCommandBuilder.synchro_velocity_command(
-                    v_x=0.5, v_y=0.0, v_rot=0.0)
-                command_client.robot_command(walk_cmd, end_time_secs=time.time() + 3)
-                time.sleep(3)
+            print("Zahajuji full-room search...")
 
-                # Náhodně se otoč vlevo/vpravo
-                direction = random.choice([-0.6, 0.6])
-                turn_cmd = RobotCommandBuilder.synchro_velocity_command(
-                    v_x=0.0, v_y=0.0, v_rot=direction)
-                command_client.robot_command(turn_cmd, end_time_secs=time.time() + 2)
-                time.sleep(2)
+            for step in range(grid_steps):
+                go_straight(step, step_length)
 
-            command_client.robot_command(RobotCommandBuilder.stop_command())
-            print("Exploration complete.")
+                # Na posledním kroku už se nemusíme otáčet
+                if step == grid_steps - 1:
+                    break
 
+                go_90()
+
+                go_sideways(side_step)
+
+                #print("Otočení zpět")
+                #rotate_back_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=-1.2)
+                #command_client.robot_command(rotate_back_cmd, end_time_secs=time.time() + 1)
+                #time.sleep(1.2)
+           
         finally:
-            print("Stopping recording...")
-            graphnav_client.stop_recording()
-            graphnav_client.download_graph('/tmp/spot_automap')
-            command_client.robot_command(RobotCommandBuilder.synchro_sit_command())
-            print("Spot is now sitting. Map saved to /tmp/spot_automap.")
+            stop_cmd = RobotCommandBuilder.stop_command()
+            command_client.robot_command(stop_cmd)
+            print("Full-room search dokončen.")
+
+
+
+sdk = bosdyn.client.create_standard_sdk("RoomExplorer")
+robot = sdk.create_robot(ROBOT_IP)
+authenticate(robot)
+robot.time_sync.wait_for_sync()
+lease_client = robot.ensure_client(LeaseClient.default_service_name)
+command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+graphnav_client = robot.ensure_client(GraphNavClient.default_service_name)
+image_client = robot.ensure_client(ImageClient.default_service_name)
+
 
 if __name__ == "__main__":
-    explore_room()
+    full_room_search(command_client, lease_client, robot)   
