@@ -52,7 +52,7 @@ def get_spot_video_rtsp(robot_ip, duration=60, fps=30):
         '-i', '-',
         '-c:v', 'libx264',
         '-f', 'rtsp',
-        'rtsp://localhost:8554/mystream'
+        'rtsp://172.25.64.1:554/mystream'
     ], stdin=subprocess.PIPE)
 
     start_time = time.time()

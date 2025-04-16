@@ -8,70 +8,111 @@ from bosdyn.client.util import authenticate, setup_logging
 from bosdyn.client.lease import LeaseKeepAlive, LeaseClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.graph_nav import GraphNavClient
+import threading
+from PIL import Image
 
 
 ROBOT_IP = "192.168.80.3"
 
+obstacle_detected = False
 
-def detect_front_obstacle():
-    # Získání depth obrázků z obou předních kamer
-    image_sources = ['frontleft_depth', 'frontright_depth']
-    image_responses = image_client.get_image_from_sources(image_sources)
 
-    if len(image_responses) != 2:
-        print("Nebyly načteny oba depth obrázky.")
-        return
 
-    # Vytvoření numpy polí z obou obrázků
-    images_np = []
-    for img in image_responses:
-        data = np.frombuffer(img.shot.image.data, dtype=np.uint16)
-        img_np = data.reshape((img.shot.image.rows, img.shot.image.cols))
-        images_np.append(img_np)
+def detect_front_obstacle_loop(stop_event):
+    global obstacle_detected
+    image_counter = 0
+    while not stop_event.is_set():
+        try:
+            image_sources = ['frontright_depth', 'frontleft_depth']
+            image_responses = image_client.get_image_from_sources(image_sources)
 
-    # Horizontální spojení obrázků
-    stitched_depth = np.hstack(images_np)
+            if len(image_responses) != 2:
+                continue
 
-    # Vyříznutí středového obdélníku
-    center_h, center_w = stitched_depth.shape[0] // 2, stitched_depth.shape[1] // 2
-    region = stitched_depth[center_h - 10:center_h + 10, center_w - 10:center_w + 10]
+            images_np = []
+            for img in image_responses:
+                data = np.frombuffer(img.shot.image.data, dtype=np.uint16)
+                img_np = data.reshape((img.shot.image.rows, img.shot.image.cols))
+                #images_np.append(img_np)
 
-    avg_distance_mm = np.mean(region)
-    avg_distance_m = avg_distance_mm / 1000.0
+                # Otočení o 90° ve směru hodinových ručiček
+                img_rotated = np.rot90(img_np, k=-1)
+                images_np.append(img_rotated)
 
-    print(f"Středová vzdálenost k překážce: {avg_distance_m:.2f} m")
-    return avg_distance_m <= 0.15  # Pokud je překážka blíže než 0.5 m, vrátí True
+            
 
-def go_straight(step, step_length):
-    if detect_front_obstacle():
-        print("Překážka detekována, zastavuji.")
-        go_backward(step, -step_length/4)
-        return
+            stitched_depth = np.hstack(images_np)
+            center_h, center_w = stitched_depth.shape[0] // 2, stitched_depth.shape[1] // 2
+            region = stitched_depth[center_h - 10:center_h + 10, center_w - 10:center_w + 10]
+
+            avg_distance_mm = np.mean(region)
+            avg_distance_m = avg_distance_mm / 1000.0
+            print(f"[OBSTACLE CHECK] Středová vzdálenost: {avg_distance_m:.2f} m")
+
+            depth_image = Image.fromarray(stitched_depth, mode='I;16')
+            filename = f"stitched_depth_{image_counter:04d}.png"
+            depth_image.save(filename)
+            print(f"[SAVE] Uložen obrázek: {filename}")
+            image_counter += 1
+
+            if avg_distance_m <= 0.15:
+                print("Překážka detekována! Zastavuji")
+                obstacle_detected = True
+                stop_cmd = RobotCommandBuilder.stop_command()
+                command_client.robot_command(stop_cmd)
+                
+
+        except Exception as e:
+            print(f"Chyba ve vlákně pro detekci překážek: {e}")
+        time.sleep(0.3)  # Četnost kontrol
+
+def go_straight(step, step_length, duration=3):
+    global obstacle_detected
+
     print(f"Krok {step + 1} dopředu")
-    # Pojedeme dopředu (v_x), žádný boční pohyb ani rotace
+    end_time = time.time() + duration
     walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
-    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 3)
-    time.sleep(4)
+    command_client.robot_command(walk_cmd, end_time_secs=end_time)
+
+    ## Čekání s kontrolou překážky
+    #while time.time() < end_time + 1:
+    #    if obstacle_detected:
+    #        print("Překážka zjištěna během kroku, zastavuji.")
+    #        stop_cmd = RobotCommandBuilder.stop_command()
+    #        command_client.robot_command(stop_cmd)
+    #        return
+    #    time.sleep(0.2)  # menší čekání pro kontrolu
+
+    print(f"Krok {step + 1} dopředu")
+    duration = 3
+    end_time = time.time() + duration
+    walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
+    command_client.robot_command(walk_cmd, end_time_secs=end_time)
+    time.sleep(duration + 1)
 
 def go_backward(step, step_length):
     print(f"Krok {step + 1} dozadu")
-    # Pojedeme dopředu (v_x), žádný boční pohyb ani rotace
-    walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
-    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 3)
-    time.sleep(4)
+    duration = 3
+    end_time = time.time() + duration
+    walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x= -step_length, v_y=0.0, v_rot=0.0)
+    command_client.robot_command(walk_cmd, end_time_secs=end_time)
+    time.sleep(duration + 1)
 
 def go_90():
-    # Otočíme se o 90° na místě (v_rot = ±1.0 ~ 90°/s), pak popojedeme do strany
     print("táčím se o 90°")
-    rotate_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=1.0)
-    command_client.robot_command(rotate_cmd, end_time_secs=time.time() + 1)
-    time.sleep(1.2)
+    duration = 3
+    end_time = time.time() + duration
+    rotate_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=0.7)
+    command_client.robot_command(rotate_cmd, end_time_secs=end_time)
+    time.sleep(duration + 1)
 
 def go_sideways(side_step):
     print("Posun do strany")
+    duration = 2
+    end_time = time.time() + duration
     side_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=-0.2, v_y=side_step, v_rot=0.0)
-    command_client.robot_command(side_cmd, end_time_secs=time.time() + 2)
-    time.sleep(2)
+    command_client.robot_command(side_cmd, end_time_secs=end_time)
+    time.sleep(duration + 1)
 
 
 def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
@@ -82,11 +123,21 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
         command_client.robot_command(stand_cmd)
         print("Spot powered on.")
         time.sleep(2)
+
+        stop_event = threading.Event()
+        obstacle_thread = threading.Thread(target=detect_front_obstacle_loop, args=(stop_event,))
+        obstacle_thread.start()
+
         try:
             print("Zahajuji full-room search...")
 
             for step in range(grid_steps):
-                
+                obstacle_detected = False
+                if obstacle_detected:
+                    go_backward(step, step_length/2)
+                    go_90()
+
+                    continue
                 go_straight(step, step_length)
 
                 # Na posledním kroku už se nemusíme otáčet
@@ -95,7 +146,7 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
 
                 go_90()
 
-                go_sideways(side_step)
+                #go_sideways(side_step)
 
                 #print("Otočení zpět")
                 #rotate_back_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=-1.2)
@@ -105,6 +156,7 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
             print(f"Chyba: {e}")
             print("Spot is shutting down.")
         finally:
+            obstacle_thread.join()
             stop_cmd = RobotCommandBuilder.stop_command()
             command_client.robot_command(stop_cmd)
             print("Full-room search dokončen.")
@@ -122,4 +174,16 @@ image_client = robot.ensure_client(ImageClient.default_service_name)
 
 
 if __name__ == "__main__":
+    #stop_event = threading.Event()
+    #obstacle_thread = threading.Thread(target=detect_front_obstacle_loop, args=(stop_event,))
+    #obstacle_thread.start()
+    #with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True):
+    #    robot.power_on(timeout_sec=20)
+    #    stand_cmd = RobotCommandBuilder.synchro_stand_command()
+    #    command_client.robot_command(stand_cmd)
+    #    print("Spot powered on.")
+    #    time.sleep(2)
+    #    
+    
+
     full_room_search()   
