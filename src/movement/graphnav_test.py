@@ -8,20 +8,6 @@ from bosdyn.client.util import authenticate, setup_logging
 from bosdyn.client.lease import LeaseKeepAlive, LeaseClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.graph_nav import GraphNavClient
-from contextlib import contextmanager
-from ctypes import *
-
-import OpenGL
-import pygame
-from OpenGL.GL import *
-from OpenGL.GL import GL_VERTEX_SHADER, shaders
-from OpenGL.GLU import *
-from PIL import Image
-from pygame.locals import *
-
-from bosdyn.api import image_pb2
-from bosdyn.client.frame_helpers import BODY_FRAME_NAME, get_a_tform_b, get_vision_tform_body
-from bosdyn.client.image import ImageClient, build_image_request
 
 
 ROBOT_IP = "192.168.80.3"
@@ -29,7 +15,7 @@ ROBOT_IP = "192.168.80.3"
 
 def detect_front_obstacle():
     # Získání depth obrázků z obou předních kamer
-    image_sources = ['frontleft_depth_in_hand_color', 'frontright_depth_in_hand_color']
+    image_sources = ['frontleft_depth', 'frontright_depth']
     image_responses = image_client.get_image_from_sources(image_sources)
 
     if len(image_responses) != 2:
@@ -54,17 +40,24 @@ def detect_front_obstacle():
     avg_distance_m = avg_distance_mm / 1000.0
 
     print(f"Středová vzdálenost k překážce: {avg_distance_m:.2f} m")
-    return avg_distance_m < 0.5  # Pokud je překážka blíže než 0.5 m, vrátí True
+    return avg_distance_m <= 0.15  # Pokud je překážka blíže než 0.5 m, vrátí True
 
 def go_straight(step, step_length):
     if detect_front_obstacle():
         print("Překážka detekována, zastavuji.")
-        go_straight(step, -step_length/4)
-        go_90()
+        go_backward(step, -step_length/4)
+        return
     print(f"Krok {step + 1} dopředu")
     # Pojedeme dopředu (v_x), žádný boční pohyb ani rotace
     walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
-    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 4)
+    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 3)
+    time.sleep(4)
+
+def go_backward(step, step_length):
+    print(f"Krok {step + 1} dozadu")
+    # Pojedeme dopředu (v_x), žádný boční pohyb ani rotace
+    walk_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=step_length, v_y=0.0, v_rot=0.0)
+    command_client.robot_command(walk_cmd, end_time_secs=time.time() + 3)
     time.sleep(4)
 
 def go_90():
@@ -81,16 +74,19 @@ def go_sideways(side_step):
     time.sleep(2)
 
 
-def full_room_search(grid_steps=15, step_length=1.0, side_step=0.5):
+def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
     
     with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True):
         robot.power_on(timeout_sec=20)
+        stand_cmd = RobotCommandBuilder.synchro_stand_command()
+        command_client.robot_command(stand_cmd)
         print("Spot powered on.")
-
+        time.sleep(2)
         try:
             print("Zahajuji full-room search...")
 
             for step in range(grid_steps):
+                
                 go_straight(step, step_length)
 
                 # Na posledním kroku už se nemusíme otáčet
@@ -105,7 +101,9 @@ def full_room_search(grid_steps=15, step_length=1.0, side_step=0.5):
                 #rotate_back_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=-1.2)
                 #command_client.robot_command(rotate_back_cmd, end_time_secs=time.time() + 1)
                 #time.sleep(1.2)
-           
+        except Exception as e:
+            print(f"Chyba: {e}")
+            print("Spot is shutting down.")
         finally:
             stop_cmd = RobotCommandBuilder.stop_command()
             command_client.robot_command(stop_cmd)
@@ -124,4 +122,4 @@ image_client = robot.ensure_client(ImageClient.default_service_name)
 
 
 if __name__ == "__main__":
-    full_room_search(command_client, lease_client, robot)   
+    full_room_search()   
