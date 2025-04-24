@@ -42,18 +42,18 @@ def get_spot_video_rtsp(robot_ip, duration=60, fps=30):
     image_source = "frontleft_fisheye_image"
 
     ffmpeg = subprocess.Popen([
-        'ffmpeg',
-        '-y',
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-pix_fmt', 'bgr24',
-        '-s', '640x480',
-        '-r', str(fps),
-        '-i', '-',
-        '-c:v', 'libx264',
-        '-f', 'rtsp',
-        'rtsp://'+robot_ip+':554/mystream'#robots ip will host the stream
-    ], stdin=subprocess.PIPE)
+
+    'ffmpeg',
+    '-f', 'rawvideo',
+    '-pix_fmt', 'bgr24',
+    '-s', '640x480',          # rozlišení
+    '-r', '30',
+    '-i', '-',                # čte z stdin
+    '-c:v', 'libx264',
+    '-f', 'rtsp',
+    'rtsp://localhost:8554/mystream'
+], stdin=subprocess.PIPE)
+
 
     start_time = time.time()
     frame_count = 0
