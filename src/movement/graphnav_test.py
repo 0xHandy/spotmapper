@@ -58,15 +58,20 @@ def detect_front_obstacle_loop(stop_event):
 
             depth_image = Image.fromarray(stitched_depth, mode='I;16')
             filename = f"stitched_depth_{image_counter:04d}.png"
-            depth_image.save(filename)
-            print(f"[SAVE] Uložen obrázek: {filename}")
+            #depth_image.save(filename)
+            #print(f"[SAVE] Uložen obrázek: {filename}")
             image_counter += 1
 
-            if avg_distance_m <= 0.15:
+            if avg_distance_m <= 0.30:
+                # Pokud je průměrná vzdálenost menší než 0.30 m, detekujeme překážku
                 print("Překážka detekována! Zastavuji")
-                obstacle_detected = True
-                stop_cmd = RobotCommandBuilder.stop_command()
-                command_client.robot_command(stop_cmd)
+                #obstacle_detected = True
+                #stop_cmd = RobotCommandBuilder.stop_command()
+                #command_client.robot_command(stop_cmd)
+                go_backward(0, 0.5)
+                go_90()
+                time.sleep(1)
+                
                 
 
         except Exception as e:
@@ -107,11 +112,11 @@ def go_backward(step, step_length):
 
 def go_90():
     print("táčím se o 90°")
-    duration = 3
+    duration = 2
     end_time = time.time() + duration
     rotate_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=0.7)
     command_client.robot_command(rotate_cmd, end_time_secs=end_time)
-    time.sleep(duration + 1)
+    time.sleep(duration + 0.6)
 
 def go_sideways(side_step):
     print("Posun do strany")
@@ -122,7 +127,7 @@ def go_sideways(side_step):
     time.sleep(duration + 1)
 
 
-def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
+def full_room_search(grid_steps=3, step_length=0.7):
     
     with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True):
         robot.power_on(timeout_sec=20)
@@ -132,6 +137,7 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
         time.sleep(2)
 
         stop_event = threading.Event()
+        global obstacle_thread 
         obstacle_thread = threading.Thread(target=detect_front_obstacle_loop, args=(stop_event,))
         obstacle_thread.start()
 
@@ -140,11 +146,11 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
 
             for step in range(grid_steps):
                 obstacle_detected = False
-                if obstacle_detected:
-                    go_backward(step, step_length/2)
-                    go_90()
+                #if obstacle_detected:
+                 #   go_backward(step, step_length/2)
+                 #   go_90()
+                 #   continue
 
-                    continue
                 go_straight(step, step_length)
 
                 # Na posledním kroku už se nemusíme otáčet
@@ -159,14 +165,21 @@ def full_room_search(grid_steps=15, step_length=0.6, side_step=0.5):
                 #rotate_back_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=-1.2)
                 #command_client.robot_command(rotate_back_cmd, end_time_secs=time.time() + 1)
                 #time.sleep(1.2)
-        except Exception as e:
-            print(f"Chyba: {e}")
-            print("Spot is shutting down.")
-        finally:
+            print("ukoncuji full-room search")
+            stop_event.set()
             obstacle_thread.join()
+            sit_cmd = RobotCommandBuilder.synchro_sit_command()
+            command_client.robot_command(sit_cmd)
+            print("Spot is sitting.")
+            time.sleep(2)
+            print("Zastavuji Spot")
             stop_cmd = RobotCommandBuilder.stop_command()
             command_client.robot_command(stop_cmd)
             print("Full-room search dokončen.")
+        except Exception as e:
+            print(f"Chyba: {e}")
+            print("Spot is shutting down.")
+            
 
 
 
@@ -178,7 +191,7 @@ lease_client = robot.ensure_client(LeaseClient.default_service_name)
 command_client = robot.ensure_client(RobotCommandClient.default_service_name)
 graphnav_client = robot.ensure_client(GraphNavClient.default_service_name)
 image_client = robot.ensure_client(ImageClient.default_service_name)
-
+obstacle_thread = None
 
 if __name__ == "__main__":
     #stop_event = threading.Event()
