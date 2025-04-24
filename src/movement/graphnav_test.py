@@ -45,8 +45,15 @@ def detect_front_obstacle_loop(stop_event):
             center_h, center_w = stitched_depth.shape[0] // 2, stitched_depth.shape[1] // 2
             region = stitched_depth[center_h - 10:center_h + 10, center_w - 10:center_w + 10]
 
-            avg_distance_mm = np.mean(region)
-            avg_distance_m = avg_distance_mm / 1000.0
+
+            # Filtruj nuly (chybějící data)
+            region_valid = region[region > 0]
+
+            # Pokud něco zbylo, vypočítej vzdálenost
+            if region_valid.size > 0:
+                avg_distance_mm = np.mean(region_valid)
+                avg_distance_m = avg_distance_mm / 1000.0
+
             print(f"[OBSTACLE CHECK] Středová vzdálenost: {avg_distance_m:.2f} m")
 
             depth_image = Image.fromarray(stitched_depth, mode='I;16')
